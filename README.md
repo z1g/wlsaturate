@@ -1,5 +1,7 @@
 # wlsaturation
 
+This is AI generated slop.  It is created for the need to replace cmdemo and cmsaturation.pl to apply NVIDIA's equivalent of digital vibrance for AMD cards in a Wayland KDE Plasma session.  This will not work with other desktop environments or window managers.  I am only putting this here as it may be useful for others looking for the same functionality. 
+
 KWin / Plasma **Wayland** replacement for [cybriq/saturation](https://github.com/cybriq/saturation).
 
 X11 tools such as `cmsaturation.pl` write a DRM **color transform matrix (CTM)** onto each CRTC through RandR. On Wayland the compositor is DRM master, so that ioctl path is gone and those tools do nothing. wlsaturation applies the **same 3×3 matrix** inside KWin as an OpenGL effect, then exposes a small CLI that behaves like the old Perl script.
