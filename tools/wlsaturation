@@ -1,0 +1,182 @@
+#!/usr/bin/env python3
+"""Wayland saturation CLI for KWin. Drop-in spirit of cmsaturation.pl."""
+
+from __future__ import annotations
+
+import argparse
+import re
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+CONFIG = Path.home() / ".config" / "kwinrc"
+GROUP = "Effect-wlsaturation"
+PLUGIN = "wlsaturation"
+
+
+def run(cmd: list[str], check: bool = True) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(cmd, check=check, text=True, capture_output=True)
+
+
+def kwrite(key: str, value: str) -> None:
+    run(
+        [
+            "kwriteconfig6",
+            "--file",
+            "kwinrc",
+            "--group",
+            GROUP,
+            "--key",
+            key,
+            value,
+        ]
+    )
+
+
+def kread(key: str, default: str = "") -> str:
+    result = run(
+        [
+            "kreadconfig6",
+            "--file",
+            "kwinrc",
+            "--group",
+            GROUP,
+            "--key",
+            key,
+            "--default",
+            default,
+        ],
+        check=False,
+    )
+    return (result.stdout or "").strip()
+
+
+ANSI = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def outputs() -> list[str]:
+    binary = shutil.which("kscreen-doctor")
+    if not binary:
+        for candidate in ("/usr/sbin/kscreen-doctor", "/usr/bin/kscreen-doctor"):
+            if Path(candidate).exists():
+                binary = candidate
+                break
+    if not binary:
+        return []
+    try:
+        text = run([binary, "-o"], check=False).stdout
+    except FileNotFoundError:
+        return []
+    text = ANSI.sub("", text or "")
+    found: list[str] = []
+    for line in text.splitlines():
+        match = re.match(r"^Output:\s+\d+\s+(\S+)", line)
+        if match:
+            found.append(match.group(1))
+    return found
+
+
+def enable_effect() -> None:
+    run(
+        [
+            "kwriteconfig6",
+            "--file",
+            "kwinrc",
+            "--group",
+            "Plugins",
+            "--key",
+            f"{PLUGIN}Enabled",
+            "true",
+        ]
+    )
+    run(
+        [
+            "qdbus6",
+            "org.kde.KWin",
+            "/Effects",
+            "org.kde.kwin.Effects.loadEffect",
+            PLUGIN,
+        ],
+        check=False,
+    )
+
+
+def reconfigure() -> None:
+    run(["qdbus6", "org.kde.KWin", "/KWin", "org.kde.KWin.reconfigure"], check=False)
+    run(
+        [
+            "qdbus6",
+            "org.kde.KWin",
+            "/Effects",
+            "org.kde.kwin.Effects.reconfigureEffect",
+            PLUGIN,
+        ],
+        check=False,
+    )
+
+
+def clamp(value: float) -> float:
+    return max(0.0, min(4.0, value))
+
+
+def print_status() -> int:
+    names = outputs()
+    global_sat = kread("Saturation", "1.0")
+    print(f"global saturation: {global_sat}")
+    if not names:
+        print("outputs: (kscreen-doctor not available)")
+        return 0
+    for name in names:
+        per = kread(name)
+        shown = per if per else global_sat
+        print(f"{name}: {shown}")
+    return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="Set AMD-style saturation on KWin Wayland (0.0–4.0, 1.0 = normal)."
+    )
+    parser.add_argument("output", nargs="?", help="connector name (kscreen-doctor), or a saturation value for all outputs")
+    parser.add_argument("saturation", nargs="?", type=float, help="0.0 grey … 1.0 normal … 4.0 max")
+    parser.add_argument("--list", action="store_true", help="list outputs and current values")
+    args = parser.parse_args()
+
+    if args.list or args.output is None:
+        return print_status()
+
+    target: str | None
+    value: float
+    try:
+        as_float = float(args.output)
+    except ValueError:
+        as_float = None
+
+    if args.saturation is None:
+        if as_float is not None:
+            target = None
+            value = as_float
+        else:
+            per = kread(args.output)
+            global_sat = kread("Saturation", "1.0")
+            print(per if per else global_sat)
+            return 0
+    else:
+        target = args.output
+        value = args.saturation
+
+    value = clamp(value)
+    enable_effect()
+    if target is None:
+        kwrite("Saturation", f"{value:.6g}")
+        print(f"Saturation of all outputs is {value}")
+    else:
+        kwrite(target, f"{value:.6g}")
+        print(f"Saturation of {target} is {value}")
+    reconfigure()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,19 @@
+{
+    "KPlugin": {
+        "Authors": [
+            {
+                "Name": "Old Gregg / Chicken"
+            }
+        ],
+        "Category": "Appearance",
+        "Description": "AMD-style display saturation via the same 3x3 CTM used by cybriq/saturation, for KWin Wayland.",
+        "EnabledByDefault": false,
+        "Icon": "preferences-desktop-color",
+        "License": "MIT",
+        "Name": "Wayland Saturation",
+        "Version": "1.0.0"
+    },
+    "org.kde.kwin.effect": {
+        "internal": false
+    }
+}
