@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Name=wlsaturation
+GenericName=Display saturation
+Comment=Adjust KWin Wayland display saturation per output
+Exec=wlsaturation-gui
+TryExec=wlsaturation-gui
+Icon=preferences-desktop-display-color
+Terminal=false
+Categories=Qt;KDE;Settings;HardwareSettings;
+Keywords=saturation;vibrance;color;display;wayland;kwin;
+StartupNotify=true
+StartupWMClass=wlsaturation
+OnlyShowIn=KDE;

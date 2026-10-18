@@ -1,5 +1,6 @@
 #version 140
 // Same 3x3 CTM as cybriq/saturation cmsaturation.pl.
+// Matrix in ~sRGB linear (gamma 2.2), no hard 0–1 clip on primaries.
 
 uniform sampler2D sampler;
 uniform vec4 modulation;
@@ -11,7 +12,7 @@ void main()
 {
     vec4 tex = texture(sampler, texcoord0);
     float alpha = max(tex.a, 0.001);
-    vec3 color = tex.rgb / alpha;
+    vec3 color = pow(max(tex.rgb / alpha, vec3(0.0)), vec3(2.2));
 
     float s = (1.0 - saturationAmount) / 3.0;
     float d = s + saturationAmount;
@@ -21,5 +22,6 @@ void main()
         s * color.r + s * color.g + d * color.b
     );
 
-    fragColor = vec4(clamp(outc, 0.0, 1.0) * alpha, tex.a) * modulation;
+    outc = pow(max(outc, vec3(0.0)), vec3(1.0 / 2.2));
+    fragColor = vec4(outc * alpha, tex.a) * modulation;
 }

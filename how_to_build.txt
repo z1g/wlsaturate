@@ -1,0 +1,58 @@
+Plasma 6 / KWin Wayland only. Rebuild on each machine. Do not copy or upload build/.
+
+chmod +x build.sh tools/wlsaturation tools/wlsaturation-gui
+./build.sh --install --reload
+
+Build files go to ~/.cache/wlsaturation-build by default.
+Override with BUILD_DIR=./build if you want (still do not ship that folder).
+
+That installs:
+  /usr/bin/wlsaturation
+  /usr/bin/wlsaturation-gui
+  /usr/share/wlsaturation/wlsaturation_lib.py
+  /usr/share/applications/wlsaturation-gui.desktop
+  KWin plugin wlsaturation.so
+
+User-only Kickoff entry (no sudo, runs this folder's GUI):
+  ./build.sh --menu
+
+Then run: wlsaturation-gui
+   or:     wlsaturation 1.6
+
+--- Arch / CachyOS ---
+./build.sh --deps --install --reload
+
+--deps installs MISSING packages only. It will not upgrade kwin.
+Never `pacman -S kwin` while Plasma is still an older release.
+
+Packages (also pulled by --deps):
+  base-devel cmake extra-cmake-modules vulkan-headers
+  qt6-base qt6-tools kconfig kcoreaddons kwin
+  python kscreen python-pyqt6
+
+Arch names are kconfig / kcoreaddons, not Fedora kf6-kconfig.
+
+--- Fedora ---
+sudo dnf install cmake gcc-c++ extra-cmake-modules vulkan-headers \
+  qt6-qtbase-devel qt6-qttools \
+  kf6-kconfig-devel kf6-kcoreaddons-devel \
+  kwin-devel python3 python3-pyqt6 plasma-workspace libkscreen
+
+Then: ./build.sh --install --reload
+(--deps is pacman-only.)
+Atomic (Kinoite): build in a toolbox; do not cmake --install onto read-only /usr.
+
+--- Debian / Ubuntu (Plasma 6 only) ---
+sudo apt install --no-install-recommends \
+  cmake g++ extra-cmake-modules \
+  qt6-base-dev qt6-base-private-dev qt6-tools-dev qdbus-qt6 \
+  libkf6config-dev libkf6coreaddons-dev kwin-dev libvulkan-dev \
+  python3 python3-pyqt6 plasma-workspace libkscreen-bin
+
+Then: ./build.sh --install --reload
+Plasma 5 kwin-dev will not work.
+
+Generic cmake (any of the three):
+  cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr
+  cmake --build build -j"$(nproc)"
+  sudo cmake --install build

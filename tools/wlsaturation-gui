@@ -1,0 +1,261 @@
+#!/usr/bin/python3
+"""Qt GUI for wlsaturation: per-output and global saturation sliders for KWin Wayland."""
+
+from __future__ import annotations
+
+import subprocess
+import sys
+from pathlib import Path
+
+# wlsaturation_lib.py sits next to this script in the source tree and in
+# <prefix>/share/wlsaturation once installed.
+_here = Path(__file__).resolve().parent
+sys.path[:0] = [str(_here), str(_here.parent / "share" / "wlsaturation")]
+
+import wlsaturation_lib as lib  # noqa: E402
+
+try:
+    from PyQt6.QtCore import QObject, Qt, QTimer, pyqtSignal
+    from PyQt6.QtWidgets import (
+        QApplication,
+        QDoubleSpinBox,
+        QFrame,
+        QGridLayout,
+        QLabel,
+        QSlider,
+        QToolButton,
+        QVBoxLayout,
+        QWidget,
+    )
+except ImportError:
+    sys.stderr.write("wlsaturation-gui needs PyQt6 (Arch: python-pyqt6, Debian: python3-pyqt6, Fedora: python3-pyqt6)\n")
+    sys.exit(1)
+
+STEP = 0.05
+TICKS = round(lib.MAX_SATURATION / STEP)  # slider units of STEP
+DEBOUNCE_MS = 120
+
+
+class SaturationRow(QObject):
+    """Label + slider + spinbox + buttons for one kwinrc key. Not a layout of its own:
+    widgets are placed into the parent grid so columns line up."""
+
+    changed = pyqtSignal(float)  # debounced/committed value to apply
+    reset_requested = pyqtSignal()
+    follow_global_requested = pyqtSignal()
+
+    def __init__(self, title: str, value: float, tooltip: str, follow_global: bool = False):
+        super().__init__()
+        self.label = QLabel(title)
+        self.label.setToolTip(tooltip)
+
+        self.slider = QSlider(Qt.Orientation.Horizontal)
+        self.slider.setRange(0, TICKS)
+        self.slider.setSingleStep(1)
+        self.slider.setPageStep(round(0.25 / STEP))
+        self.slider.setTickPosition(QSlider.TickPosition.TicksBelow)
+        self.slider.setTickInterval(round(1.0 / STEP))
+        self.slider.setMinimumWidth(220)
+        self.slider.setToolTip("0.0 grey · 1.0 normal · 4.0 max")
+
+        self.spin = QDoubleSpinBox()
+        self.spin.setRange(lib.MIN_SATURATION, lib.MAX_SATURATION)
+        self.spin.setDecimals(2)
+        self.spin.setSingleStep(STEP)
+        self.spin.setKeyboardTracking(False)
+
+        self.reset = QToolButton()
+        self.reset.setText("Reset")
+        self.reset.setToolTip("Set to 1.0 (identity)")
+
+        self.follow = None
+        if follow_global:
+            self.follow = QToolButton()
+            self.follow.setText("Global")
+            self.follow.setToolTip("Remove the per-output override and follow the global value")
+
+        self._timer = QTimer(self)
+        self._timer.setSingleShot(True)
+        self._timer.setInterval(DEBOUNCE_MS)
+        self._timer.timeout.connect(self._commit)
+
+        self.set_value(value)
+
+        self.slider.valueChanged.connect(self._slider_moved)
+        self.slider.sliderReleased.connect(self._commit)
+        self.spin.valueChanged.connect(self._spin_changed)
+        self.reset.clicked.connect(self.reset_requested)
+        if self.follow:
+            self.follow.clicked.connect(self.follow_global_requested)
+
+    def value(self) -> float:
+        return round(self.spin.value(), 2)
+
+    def set_value(self, value: float) -> None:
+        """Update both controls without emitting `changed`."""
+        self._timer.stop()
+        for w in (self.slider, self.spin):
+            w.blockSignals(True)
+        self.spin.setValue(value)
+        self.slider.setValue(round(value / STEP))
+        for w in (self.slider, self.spin):
+            w.blockSignals(False)
+
+    def set_overridden(self, overridden: bool) -> None:
+        font = self.label.font()
+        font.setItalic(not overridden)
+        self.label.setFont(font)
+        if self.follow:
+            self.follow.setEnabled(overridden)
+
+    def _slider_moved(self, ticks: int) -> None:
+        self.spin.blockSignals(True)
+        self.spin.setValue(ticks * STEP)
+        self.spin.blockSignals(False)
+        self._timer.start()  # debounce while dragging; release commits immediately
+
+    def _spin_changed(self, value: float) -> None:
+        self.slider.blockSignals(True)
+        self.slider.setValue(round(value / STEP))
+        self.slider.blockSignals(False)
+        self._timer.start()
+
+    def _commit(self) -> None:
+        self._timer.stop()
+        self.changed.emit(self.value())
+
+    def add_to_grid(self, grid: QGridLayout, row: int) -> None:
+        grid.addWidget(self.label, row, 0)
+        grid.addWidget(self.slider, row, 1)
+        grid.addWidget(self.spin, row, 2)
+        grid.addWidget(self.reset, row, 3)
+        if self.follow:
+            grid.addWidget(self.follow, row, 4)
+
+
+class Window(QWidget):
+    def __init__(self) -> None:
+        super().__init__()
+        self.setWindowTitle("wlsaturation")
+        self._enabled = False
+        self._applied: dict[str | None, float] = {}
+
+        self.global_value = lib.read_global()
+        self.outputs = lib.outputs()
+        self.overrides: dict[str, float | None] = {name: lib.read_output(name) for name in self.outputs}
+
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(8)
+        grid.setVerticalSpacing(4)
+
+        self.global_row = SaturationRow(
+            "All outputs", self.global_value, "Global 'Saturation' key, used by outputs without an override"
+        )
+        bold = self.global_row.label.font()
+        bold.setBold(True)
+        self.global_row.label.setFont(bold)
+        self.global_row.changed.connect(lambda v: self._apply(None, v))
+        self.global_row.reset_requested.connect(lambda: self._reset(None))
+        self.global_row.add_to_grid(grid, 0)
+
+        line = QFrame()
+        line.setFrameShape(QFrame.Shape.HLine)
+        line.setFrameShadow(QFrame.Shadow.Sunken)
+        grid.addWidget(line, 1, 0, 1, 5)
+
+        self.rows: dict[str, SaturationRow] = {}
+        for i, name in enumerate(self.outputs):
+            per = self.overrides[name]
+            row = SaturationRow(
+                name,
+                per if per is not None else self.global_value,
+                f"Per-output key '{name}' (italic = following global)",
+                follow_global=True,
+            )
+            row.set_overridden(per is not None)
+            row.changed.connect(lambda v, n=name: self._apply(n, v))
+            row.reset_requested.connect(lambda n=name: self._reset(n))
+            row.follow_global_requested.connect(lambda n=name: self._follow_global(n))
+            row.add_to_grid(grid, i + 2)
+            self.rows[name] = row
+        grid.setColumnStretch(1, 1)
+
+        self.status = QLabel()
+        self.status.setWordWrap(True)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.addLayout(grid)
+        if not self.outputs:
+            error = QLabel(
+                "<b>No outputs found.</b> Neither <tt>kscreen-doctor -o</tt> nor KWin "
+                "supportInformation listed any connectors. You can still set the global saturation."
+            )
+            error.setWordWrap(True)
+            error.setStyleSheet("color: #c0392b;")
+            layout.addWidget(error)
+        layout.addWidget(self.status)
+        self._set_status("0.0 grey · 1.0 normal · 4.0 max · changes apply live")
+
+    def _set_status(self, text: str, error: bool = False) -> None:
+        self.status.setStyleSheet("color: #c0392b;" if error else "")
+        self.status.setText(text)
+
+    def _write(self, action, description: str) -> bool:
+        try:
+            action()
+        except (OSError, subprocess.CalledProcessError) as exc:
+            detail = getattr(exc, "stderr", None) or str(exc)
+            self._set_status(f"Failed to {description}: {detail.strip()}", error=True)
+            return False
+        self._set_status(description[0].upper() + description[1:])
+        return True
+
+    def _apply(self, output: str | None, value: float) -> None:
+        value = lib.clamp(value)
+        if self._applied.get(output) == value and self._enabled:
+            return
+        label = output or "all outputs"
+        ok = self._write(
+            lambda: lib.set_saturation(value, output, enable=not self._enabled),
+            f"set {label} to {value:.2f}",
+        )
+        if not ok:
+            return
+        self._enabled = True
+        self._applied[output] = value
+        if output is None:
+            self.global_value = value
+            for name, row in self.rows.items():
+                if self.overrides[name] is None:
+                    row.set_value(value)
+        else:
+            self.overrides[output] = value
+            self.rows[output].set_overridden(True)
+
+    def _reset(self, output: str | None) -> None:
+        row = self.global_row if output is None else self.rows[output]
+        row.set_value(lib.IDENTITY)
+        self._apply(output, lib.IDENTITY)
+
+    def _follow_global(self, output: str) -> None:
+        if not self._write(lambda: lib.clear_output(output), f"make {output} follow global"):
+            return
+        self.overrides[output] = None
+        self._applied.pop(output, None)
+        row = self.rows[output]
+        row.set_value(self.global_value)
+        row.set_overridden(False)
+
+
+def main() -> int:
+    app = QApplication(sys.argv)
+    app.setApplicationName("wlsaturation")
+    app.setDesktopFileName("wlsaturation-gui")
+    window = Window()
+    window.show()
+    return app.exec()
+
+
+if __name__ == "__main__":
+    sys.exit(main())

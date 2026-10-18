@@ -20,6 +20,11 @@ static void ensureResources()
     Q_INIT_RESOURCE(saturation);
 }
 
+static void cleanupResources()
+{
+    Q_CLEANUP_RESOURCE(saturation);
+}
+
 namespace KWin
 {
 
@@ -41,7 +46,10 @@ SaturationEffect::SaturationEffect()
     effects->addRepaintFull();
 }
 
-SaturationEffect::~SaturationEffect() = default;
+SaturationEffect::~SaturationEffect()
+{
+    cleanupResources();
+}
 
 bool SaturationEffect::supported()
 {
@@ -92,7 +100,7 @@ float SaturationEffect::amountFor(const EffectWindow *window) const
 
 bool SaturationEffect::wantsWindow(const EffectWindow *window) const
 {
-    if (!m_shader || window->isDesktop()) {
+    if (!m_shader) {
         return false;
     }
     return std::fabs(amountFor(window) - 1.0f) > 0.0005f;

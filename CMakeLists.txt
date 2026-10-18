@@ -36,4 +36,7 @@ target_link_libraries(wlsaturation PRIVATE
     Qt6::Gui
 )
 
-install(PROGRAMS tools/wlsaturation DESTINATION ${KDE_INSTALL_BINDIR})
+install(PROGRAMS tools/wlsaturation tools/wlsaturation-gui DESTINATION ${KDE_INSTALL_BINDIR})
+# Shared Python module for the CLI and GUI; the scripts look in <bindir>/../share/wlsaturation.
+install(FILES tools/wlsaturation_lib.py DESTINATION ${KDE_INSTALL_DATADIR}/wlsaturation)
+install(FILES data/wlsaturation-gui.desktop DESTINATION ${KDE_INSTALL_APPDIR})

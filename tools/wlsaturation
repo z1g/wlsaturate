@@ -4,120 +4,15 @@
 from __future__ import annotations
 
 import argparse
-import re
-import shutil
-import subprocess
 import sys
 from pathlib import Path
 
-CONFIG = Path.home() / ".config" / "kwinrc"
-GROUP = "Effect-wlsaturation"
-PLUGIN = "wlsaturation"
+# wlsaturation_lib.py sits next to this script in the source tree and in
+# <prefix>/share/wlsaturation once installed.
+_here = Path(__file__).resolve().parent
+sys.path[:0] = [str(_here), str(_here.parent / "share" / "wlsaturation")]
 
-
-def run(cmd: list[str], check: bool = True) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(cmd, check=check, text=True, capture_output=True)
-
-
-def kwrite(key: str, value: str) -> None:
-    run(
-        [
-            "kwriteconfig6",
-            "--file",
-            "kwinrc",
-            "--group",
-            GROUP,
-            "--key",
-            key,
-            value,
-        ]
-    )
-
-
-def kread(key: str, default: str = "") -> str:
-    result = run(
-        [
-            "kreadconfig6",
-            "--file",
-            "kwinrc",
-            "--group",
-            GROUP,
-            "--key",
-            key,
-            "--default",
-            default,
-        ],
-        check=False,
-    )
-    return (result.stdout or "").strip()
-
-
-ANSI = re.compile(r"\x1b\[[0-9;]*m")
-
-
-def outputs() -> list[str]:
-    binary = shutil.which("kscreen-doctor")
-    if not binary:
-        for candidate in ("/usr/sbin/kscreen-doctor", "/usr/bin/kscreen-doctor"):
-            if Path(candidate).exists():
-                binary = candidate
-                break
-    if not binary:
-        return []
-    try:
-        text = run([binary, "-o"], check=False).stdout
-    except FileNotFoundError:
-        return []
-    text = ANSI.sub("", text or "")
-    found: list[str] = []
-    for line in text.splitlines():
-        match = re.match(r"^Output:\s+\d+\s+(\S+)", line)
-        if match:
-            found.append(match.group(1))
-    return found
-
-
-def enable_effect() -> None:
-    run(
-        [
-            "kwriteconfig6",
-            "--file",
-            "kwinrc",
-            "--group",
-            "Plugins",
-            "--key",
-            f"{PLUGIN}Enabled",
-            "true",
-        ]
-    )
-    run(
-        [
-            "qdbus6",
-            "org.kde.KWin",
-            "/Effects",
-            "org.kde.kwin.Effects.loadEffect",
-            PLUGIN,
-        ],
-        check=False,
-    )
-
-
-def reconfigure() -> None:
-    run(["qdbus6", "org.kde.KWin", "/KWin", "org.kde.KWin.reconfigure"], check=False)
-    run(
-        [
-            "qdbus6",
-            "org.kde.KWin",
-            "/Effects",
-            "org.kde.kwin.Effects.reconfigureEffect",
-            PLUGIN,
-        ],
-        check=False,
-    )
-
-
-def clamp(value: float) -> float:
-    return max(0.0, min(4.0, value))
+from wlsaturation_lib import clamp, enable_effect, kread, kwrite, outputs, reconfigure  # noqa: E402
 
 
 def print_status() -> int:
@@ -125,7 +20,7 @@ def print_status() -> int:
     global_sat = kread("Saturation", "1.0")
     print(f"global saturation: {global_sat}")
     if not names:
-        print("outputs: (kscreen-doctor not available)")
+        print("outputs: (none found via kscreen-doctor or KWin supportInformation)")
         return 0
     for name in names:
         per = kread(name)
