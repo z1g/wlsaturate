@@ -26,7 +26,6 @@ On Wayland that path is gone. This project:
 4. Ships a **CLI** (`wlsaturation`) in the spirit of the old Perl script.
 5. Ships a **PyQt6 GUI** (`wlsaturation-gui`) with a slider per display.
 
-Typical use: washed-out laptop or desktop panel on Plasma Wayland, you want the old `1.6` boost back.
 
 ---
 
@@ -426,4 +425,3 @@ tools/wlsaturation-gui       PyQt6 GUI
 tools/wlsaturation_lib.py    kwinrc / D-Bus helpers shared by CLI and GUI
 ```
 
-Do not upload `build/`, `__pycache__/`, or compiled `.so` files.
